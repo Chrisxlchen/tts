@@ -7,6 +7,7 @@ where it stopped and re-running after a cast.json edit only redoes the affected 
 """
 import hashlib
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -40,6 +41,21 @@ def level(audio):
     gain = min(gain, 0.98 / max(float(np.abs(audio).max()), 1e-6))  # never clip
     return (audio * gain).astype(np.float32)
 OPEN, CLOSE = "“「", "”」"
+SPEAKABLE = re.compile(r"[0-9A-Za-z㐀-鿿]")
+ELLIPSIS = re.compile(r"(?:…|\.{2,}|。{2,}|·{2,})+")
+BEAT_S = 0.5  # a part with nothing to read ("……", “……”) is a silent beat, not a TTS call
+SCENE_BREAK_S = 1.5  # a separator line such as "-----"
+
+
+def speakable(text):
+    """The text as the TTS should read it. An ellipsis makes the model fill the gap with noise,
+    so one inside a sentence becomes a comma pause and a trailing one a full stop."""
+    if not ELLIPSIS.search(text):
+        return text
+    text = ELLIPSIS.sub("，", text).strip()
+    text = re.sub(r"，+(?=[，。！？；：、—])", "", text)  # "……？" keeps only the question mark
+    text = re.sub(r"^[，。！？；：、\s]+", "", text)
+    return re.sub(r"，+$", "。", text)
 
 
 def syllables(text):
@@ -58,6 +74,14 @@ def error_rate(ref, hyp):
             cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (r != h))
         prev = cur
     return prev[-1] / len(ref)
+
+
+MAX_S_PER_SYLLABLE = 0.6  # about twice normal pace: the model babbled or repeated itself, which ASR can miss
+
+
+def too_slow(ref, audio, sr):
+    n = len(syllables(ref))
+    return n >= 4 and len(audio) / sr / n > MAX_S_PER_SYLLABLE
 
 
 def voice_parts(paragraph):
@@ -101,7 +125,14 @@ class Renderer:
 
     def segment(self, parts, speaker):
         """[(quoted, text)] -> (audio, sr, info); cached by text and voices."""
-        plan = [(text, *(self.voice_of(speaker) if quoted else self.narrator)) for quoted, text in parts]
+        plan = [(speakable(text), *(self.voice_of(speaker) if quoted else self.narrator))
+                for quoted, text in parts if SPEAKABLE.search(text)]
+        if not plan:
+            sr = 24000
+            raw = "".join(text for _, text in parts)
+            pause = SCENE_BREAK_S if re.search(r"[-—*=~]{3,}", raw) else BEAT_S
+            return np.zeros(int(pause * sr), dtype=np.float32), sr, {"err": 0.0, "tries": 0, "gen_s": 0.0,
+                                                                     "cached": True, "asr": ""}
         key = hashlib.sha1(json.dumps([CACHE_VERSION, plan], ensure_ascii=False).encode()).hexdigest()[:16]
         wav, meta = self.seg_dir / f"{key}.wav", self.seg_dir / f"{key}.json"
         if wav.exists() and meta.exists():
@@ -119,7 +150,7 @@ class Renderer:
                 pieces.append(level(np.asarray(audio, dtype=np.float32).reshape(-1)))
             audio = np.concatenate(pieces)
             hyp = self.transcribe(audio, sr)
-            err = error_rate(ref, hyp)
+            err = error_rate(ref, hyp) + (0.5 if too_slow(ref, audio, sr) else 0.0)
             if best is None or err < best[2]:
                 best = (audio, sr, err, hyp, attempt)
             if err <= BAD_RATE:
