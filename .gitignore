@@ -1,0 +1,13 @@
+bakeoff/out/
+bakeoff/models/
+.venv/
+__pycache__/
+*.wav
+*.m4a
+bakeoff/vendor/
+bakeoff/blind/session/
+bakeoff/blind/mapping.json
+bakeoff/out_run_all.log
+# chosen Reference Clips are kept; candidate takes are not
+!bakeoff/refs/*.wav
+bakeoff/refs/*_take*.wav

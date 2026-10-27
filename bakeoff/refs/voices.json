@@ -1,0 +1,13 @@
+{
+  "narrator": {"label": "旁白", "voice": "vivian", "style": true},
+  "old_m":    {"label": "老年男", "voice": "ref:old_m",   "target_f0": 115},
+  "old_f":    {"label": "老年女", "voice": "ref:old_f",   "target_f0": 185},
+  "mid_m":    {"label": "中年男", "voice": "ref:mid_m",   "target_f0": 120},
+  "mid_f":    {"label": "中年女", "voice": "ref:mid_f",   "target_f0": 160, "locked": true},
+  "young_m":  {"label": "青年男", "voice": "ryan"},
+  "young_f":  {"label": "青年女", "voice": "serena"},
+  "teen_m":   {"label": "少年男", "voice": "ref:teen_m",  "target_f0": 170},
+  "teen_f":   {"label": "少女",   "voice": "ref:teen_f",  "target_f0": 250},
+  "child_m":  {"label": "男童",   "voice": "ref:child_m", "target_f0": 280},
+  "child_f":  {"label": "女童",   "voice": "ref:child_f", "target_f0": 300}
+}

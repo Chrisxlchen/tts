@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>盲听评分</title>
+<style>
+  :root { --bg:#faf9f7; --card:#fff; --ink:#1d1d1f; --mute:#6e6e73; --line:#e5e3df; --accent:#b4532a; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161615; --card:#1f1f1e; --ink:#ecebe8; --mute:#9a9893; --line:#33322f; --accent:#e08a5f; } }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.6 -apple-system, "PingFang SC", sans-serif; }
+  main { max-width:860px; margin:0 auto; padding:24px 16px 80px; }
+  h1 { font-size:22px; margin:0 0 4px } h2 { font-size:17px; margin:0 }
+  .mute { color:var(--mute); font-size:13px }
+  .bar { position:sticky; top:0; z-index:2; background:var(--bg); border-bottom:1px solid var(--line); padding:10px 0; margin-bottom:16px; display:flex; gap:12px; align-items:center; flex-wrap:wrap }
+  button { font:inherit; border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:8px; padding:4px 12px; cursor:pointer }
+  button.on { background:var(--accent); border-color:var(--accent); color:#fff }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin:12px 0 }
+  .text { color:var(--mute); font-size:14px; margin:6px 0 12px; max-height:6.4em; overflow:auto; white-space:pre-wrap }
+  .row { display:grid; grid-template-columns:32px 1fr auto; gap:10px; align-items:center; padding:6px 0; border-top:1px dashed var(--line) }
+  .row b { font-size:18px; color:var(--accent) }
+  audio { width:100% }
+  .stars button { padding:2px 8px; margin-left:2px }
+  textarea { width:100%; font:inherit; background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:6px }
+  table { border-collapse:collapse; width:100% } td, th { padding:6px 8px; border-bottom:1px solid var(--line); text-align:left }
+  @media (max-width:560px) { .row { grid-template-columns:24px 1fr } .stars { grid-column:2 } }
+</style>
+</head>
+<body>
+<main>
+  <h1>中文 TTS 盲听评分</h1>
+  <p class="mute">每个字母是一个模型，所有题目里同一个字母代表同一个模型。给每条录音的自然度和发音正确性打 1–5 分，最后回答"能否连续听 1 小时"。评分会自动保存在本浏览器里，做完点"导出评分"。</p>
+  <div class="bar">
+    <span>播放倍速</span>
+    <button data-rate="1">1×</button><button data-rate="2.5">2.5×</button>
+    <span style="flex:1"></span>
+    <button id="export">导出评分</button>
+  </div>
+  <div id="items"></div>
+  <div class="card" id="pairs"></div>
+  <div class="card" id="overall"></div>
+</main>
+<script>
+const DATA = /*DATA*/null;
+const KEY = "tts-blind-scores";
+let S = {};
+try { S = JSON.parse(localStorage.getItem(KEY)) || {}; } catch {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} };
+let rate = 1;
+
+function stars(key) {
+  const wrap = document.createElement("span"); wrap.className = "stars";
+  for (let v = 1; v <= 5; v++) {
+    const b = document.createElement("button"); b.textContent = v;
+    if (S[key] === v) b.classList.add("on");
+    b.onclick = () => { S[key] = v; save(); [...wrap.children].forEach(x => x.classList.toggle("on", +x.textContent === v)); };
+    wrap.append(b);
+  }
+  return wrap;
+}
+
+function player(src, fixedRate) {
+  const a = document.createElement("audio"); a.controls = true; a.preload = "none"; a.src = src;
+  a.preservesPitch = true;
+  if (fixedRate) a.dataset.fixed = fixedRate;
+  a.addEventListener("play", () => {
+    a.playbackRate = +(a.dataset.fixed || rate);
+    document.querySelectorAll("audio").forEach(o => o !== a && o.pause());
+  });
+  return a;
+}
+
+function render() {
+  const root = document.getElementById("items");
+  DATA.items.forEach((item, i) => {
+    const c = document.createElement("div"); c.className = "card";
+    c.innerHTML = `<h2>${i + 1}. ${item.category} <span class="mute">${item.id}</span></h2><div class="text"></div>`;
+    c.querySelector(".text").textContent = item.text;
+    item.samples.forEach(s => {
+      const r = document.createElement("div"); r.className = "row";
+      r.innerHTML = `<b>${s.label}</b>`;
+      r.append(player(s.src), stars(`${item.id}:${s.label}`));
+      c.append(r);
+    });
+    root.append(c);
+  });
+
+  const pc = document.getElementById("pairs");
+  pc.innerHTML = `<h2>2.5× 两种做法对比</h2><p class="mute">同一个模型、同一段文字，X 和 Y 一个是模型直接按 2.5 倍速合成，另一个是 1 倍速音频加速播放。两者都已设定为固定速度，不受上方倍速按钮影响。</p>`;
+  DATA.pairs.forEach(p => p.samples.forEach(s => {
+    const r = document.createElement("div"); r.className = "row";
+    r.innerHTML = `<b>${s.label}</b>`;
+    r.append(player(s.src, s.rate), stars(`${p.id}:${s.label}`));
+    pc.append(r);
+  }));
+  if (!DATA.pairs.length) pc.remove();
+
+  const oc = document.getElementById("overall");
+  oc.innerHTML = `<h2>总体</h2><p class="mute">以你平时 2.5× 听书的感受为准。</p>`;
+  const t = document.createElement("table");
+  t.innerHTML = `<tr><th>模型</th><th>能连续听 1 小时吗？</th></tr>`;
+  DATA.letters.forEach(L => {
+    const tr = document.createElement("tr"); const td = document.createElement("td");
+    tr.innerHTML = `<td><b>${L}</b></td>`;
+    ["能", "勉强", "不能"].forEach(v => {
+      const b = document.createElement("button"); b.textContent = v;
+      if (S[`hour:${L}`] === v) b.classList.add("on");
+      b.onclick = () => { S[`hour:${L}`] = v; save(); [...td.children].forEach(x => x.classList.toggle("on", x === b)); };
+      td.append(b);
+    });
+    tr.append(td); t.append(tr);
+  });
+  oc.append(t);
+  const n = document.createElement("textarea"); n.rows = 4; n.placeholder = "备注：读错的字、不喜欢的地方、偏好哪个……";
+  n.value = S.notes || ""; n.oninput = () => { S.notes = n.value; save(); };
+  oc.append(n);
+}
+
+document.querySelectorAll("[data-rate]").forEach(b => {
+  b.classList.toggle("on", +b.dataset.rate === rate);
+  b.onclick = () => {
+    rate = +b.dataset.rate;
+    document.querySelectorAll("[data-rate]").forEach(x => x.classList.toggle("on", x === b));
+    document.querySelectorAll("audio:not([data-fixed])").forEach(a => a.playbackRate = rate);
+  };
+});
+document.getElementById("export").onclick = () => {
+  const blob = new Blob([JSON.stringify(S, null, 2)], { type: "application/json" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "scores.json"; a.click();
+};
+render();
+</script>
+</body>
+</html>
