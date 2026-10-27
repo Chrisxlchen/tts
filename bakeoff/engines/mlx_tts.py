@@ -134,12 +134,24 @@ AUDITION_LINES = {
     "teen_f": "放学我们一起去书店吧，听说新到了好多漫画。",
     "child_m": "妈妈你看，我抓到一只蝴蝶！它的翅膀是蓝色的。",
     "child_f": "爸爸，我今天画了一只小兔子，送给你好不好？",
+    "young_f2": "你别逞强了，伤口还没好，先把这碗药喝了吧。",
+    "young_f3": "剑在人在。你若想过此峰，先胜过我手中这把剑。",
+    "young_f4": "哎呀，被你发现啦？那我可就不客气咯。",
+    "young_f5": "我说过的话，从来没有收回的道理。",
+    "young_m2": "师妹别怕，有我在，没人能伤得了你。",
+    "young_m3": "让开。这件事，与你无关。",
+    "teen_f2": "师兄，你答应过我的，下山要给我带糖葫芦。",
+    "young_f6": "都给我站好了！谁再退一步，门规处置。",
+    "young_f7": "哟，这么晚了还来找我，可是想我了？",
+    "young_f8": "这件事急不得，先把来龙去脉理清楚，再做决定。",
+    "young_m4": "打打杀杀多累啊，不如先睡一觉，醒了再说。",
+    "young_m5": "哈哈哈！痛快！再来十坛酒，今天不醉不归！",
 }
 
 
-def audition():
-    """Every library voice says a line that suits it, announced by the narrator:
-    out/samples/voices/<type>.wav and one combined file."""
+def audition(only=None):
+    """Every library voice (or just `only`) says a line that suits it, announced by the narrator:
+    out/samples/voices/<type>.wav and one combined file, all.wav (or <first>_etc.wav for `only`)."""
     say = make_say()
     narrator = LIBRARY["narrator"]
     style = NARRATOR_STYLE if narrator.get("style") else None
@@ -147,13 +159,15 @@ def audition():
     out.mkdir(parents=True, exist_ok=True)
     combined, sr = [], None
     for vid, v in LIBRARY.items():
+        if only and vid not in only:
+            continue
         line, sr = say(AUDITION_LINES[vid], vid, style if vid == "narrator" else None)
         sf.write(out / f"{vid}.wav", line, sr)
         label, _ = say(f"{v['label']}。", "narrator", style)
         gap = np.zeros(int(0.4 * sr), dtype=np.float32)
         combined += [label, gap, line, gap, gap]
         print(f"{vid}: {len(line) / sr:.1f}s")
-    sf.write(out / "all.wav", np.concatenate(combined), sr)
+    sf.write(out / ("all.wav" if not only else f"{only[0]}_etc.wav"), np.concatenate(combined), sr)
 
 
 def voxcpm2(ref, quant):
@@ -185,12 +199,13 @@ if __name__ == "__main__":
     ap.add_argument("--ref", default="narrator_f", help="Reference Clip name under refs/")
     ap.add_argument("--describe", default=DEFAULT_DESIGN, help="design: voice description")
     ap.add_argument("--takes", type=int, default=3, help="design: number of candidate takes")
+    ap.add_argument("--voices", nargs="*", help="audition: only these library voices")
     ap.add_argument("--quant", default="bf16", choices=["bf16", "8bit", "4bit"], help="voxcpm2 weights")
     args = ap.parse_args()
     if args.engine == "design":
         design(args.ref, args.describe, args.takes)
     elif args.engine == "audition":
-        audition()
+        audition(args.voices)
     elif args.engine == "qwen3":
         style = NARRATOR_STYLE if args.style or args.tags else None
         if args.cast:

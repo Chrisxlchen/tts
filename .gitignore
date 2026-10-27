@@ -11,3 +11,5 @@ bakeoff/out_run_all.log
 # chosen Reference Clips are kept; candidate takes are not
 !bakeoff/refs/*.wav
 bakeoff/refs/*_take*.wav
+audiobook/work/
+audiobook/books/
