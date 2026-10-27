@@ -84,6 +84,14 @@ def too_slow(ref, audio, sr):
     return n >= 4 and len(audio) / sr / n > MAX_S_PER_SYLLABLE
 
 
+FILLER = re.compile(r"^[，。\s]*[啊嗯呃哦]")
+
+
+def stray_start(ref, hyp):
+    """A cloned voice sometimes opens with a syllable carried over from its reference clip."""
+    return bool(FILLER.match(hyp)) and not FILLER.match(re.sub(r"^[“「]", "", ref))
+
+
 def voice_parts(paragraph):
     """Splits a paragraph into its Segments, each a list of (quoted, text) parts."""
     in_quote = False
@@ -112,10 +120,20 @@ class Renderer:
         narrator = mlx_tts.LIBRARY["narrator"]
         self.narrator = ("narrator", mlx_tts.NARRATOR_STYLE if narrator.get("style") else None)
         self.rec = score.recognizer()
+        self.clips = {}
 
     def voice_of(self, name):
         c = self.cast.get(name)
         return (c.get("voice") or c["type"], None) if c else self.narrator
+
+    def clip_id(self, voice):
+        """A fingerprint of the reference clip a cloned voice uses, so replacing the clip redoes its Segments."""
+        ref = mlx_tts.resolve(voice)
+        if not ref.startswith("ref:"):
+            return ref
+        if ref not in self.clips:
+            self.clips[ref] = hashlib.sha1((mlx_tts.REFS / f"{ref[4:]}.wav").read_bytes()).hexdigest()[:8]
+        return self.clips[ref]
 
     def transcribe(self, audio, sr):
         s = self.rec.create_stream()
@@ -133,7 +151,8 @@ class Renderer:
             pause = SCENE_BREAK_S if re.search(r"[-—*=~]{3,}", raw) else BEAT_S
             return np.zeros(int(pause * sr), dtype=np.float32), sr, {"err": 0.0, "tries": 0, "gen_s": 0.0,
                                                                      "cached": True, "asr": ""}
-        key = hashlib.sha1(json.dumps([CACHE_VERSION, plan], ensure_ascii=False).encode()).hexdigest()[:16]
+        clips = sorted({self.clip_id(voice) for _, voice, _ in plan})
+        key = hashlib.sha1(json.dumps([CACHE_VERSION, plan, clips], ensure_ascii=False).encode()).hexdigest()[:16]
         wav, meta = self.seg_dir / f"{key}.wav", self.seg_dir / f"{key}.json"
         if wav.exists() and meta.exists():
             audio, sr = sf.read(wav, dtype="float32")
@@ -150,7 +169,7 @@ class Renderer:
                 pieces.append(level(np.asarray(audio, dtype=np.float32).reshape(-1)))
             audio = np.concatenate(pieces)
             hyp = self.transcribe(audio, sr)
-            err = error_rate(ref, hyp) + (0.5 if too_slow(ref, audio, sr) else 0.0)
+            err = error_rate(ref, hyp) + (0.5 if too_slow(ref, audio, sr) or stray_start(ref, hyp) else 0.0)
             if best is None or err < best[2]:
                 best = (audio, sr, err, hyp, attempt)
             if err <= BAD_RATE:
