@@ -1,5 +1,5 @@
 {
-  "narrator": {"label": "旁白", "voice": "ref:narrator", "locked": true, "note": "cloned from a calm vivian narration clip: far steadier tone than the preset with an instruction; the clip is padded with silence, or the clone starts lines with a stray syllable"},
+  "narrator": {"label": "旁白", "voice": "ref:narrator", "locked": true, "note": "cloned from a clip of the ryan preset asked for crisp narration: firmest, least breathy and steadiest of 18 candidates (narrator_vivian = the earlier, softer narrator; narrator_crisp_f = the best crisp female clip); clips are padded with silence, or the clone starts lines with a stray syllable"},
   "old_m": {"label": "老年男", "voice": "ref:old_m", "target_f0": 115, "locked": true},
   "old_f": {"label": "老年女", "voice": "ref:old_f", "target_f0": 185, "locked": true},
   "mid_m": {"label": "中年男", "voice": "ref:mid_m", "target_f0": 120, "locked": true},
