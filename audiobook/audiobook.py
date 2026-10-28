@@ -99,9 +99,34 @@ def build(book_dir, book, ids):
         print(f"[m4b] {len(done)}/{len(book['chapters'])} chapters rendered; chapters/ can already go to BookPlayer")
 
 
+def status(book_dir, book):
+    """A checklist of every Chapter: rendered or not, whether a build is running, and an ETA."""
+    import subprocess
+
+    out_dir = book_dir / "chapters"
+    done = {int(p.name[:3]) - 1 for p in out_dir.glob("*.m4a")} if out_dir.exists() else set()
+    report_path = book_dir / "report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
+    for n, c in enumerate(book["chapters"]):
+        r = report.get(str(n))
+        info = f"  {r['audio_s'] / 60:4.1f} 分钟" if n in done and r else ""
+        print(f"[{'x' if n in done else ' '}] {n + 1:03d} {c['title']}{info}")
+    timed = [report[str(n)] for n in done if str(n) in report and report[str(n)]["gen_s"] > 60]
+    chars_left = sum(len(p) for n, c in enumerate(book["chapters"]) if n not in done for p in c["paragraphs"])
+    running = subprocess.run(["pgrep", "-f", f"audiobook.py build .*{book_dir.name}"], capture_output=True).returncode == 0
+    print(f"\n完成 {len(done)}/{len(book['chapters'])} 章，"
+          f"已合成 {sum(report[str(n)]['audio_s'] for n in done if str(n) in report) / 3600:.1f} 小时音频；"
+          f"合成进程{'正在运行' if running else '没有运行'}")
+    if timed and chars_left:
+        chars = {n: sum(len(p) for p in book["chapters"][n]["paragraphs"]) for n in done}
+        per_char = sum(r["wall_s"] for r in timed) / sum(chars[int(n)] for n, r in report.items()
+                                                          if int(n) in done and r in timed)
+        print(f"剩余约 {chars_left * per_char / 3600:.1f} 小时（Mac 保持唤醒时）")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["build", "cast", "list"])
+    ap.add_argument("command", choices=["build", "cast", "list", "status"])
     ap.add_argument("source", help="EPUB or .txt")
     ap.add_argument("--chapters", help="1-based Chapter number or range, e.g. 3 or 2-5")
     args = ap.parse_args()
@@ -110,6 +135,9 @@ def main():
     if args.command == "list":
         for n, c in enumerate(book["chapters"]):
             print(f"{n + 1:3d}  {c['title']}  ({sum(len(p) for p in c['paragraphs'])} 字)")
+        return
+    if args.command == "status":
+        status(book_dir, book)
         return
     ids = chapter_range(args.chapters, len(book["chapters"]))
     if args.command == "cast":
