@@ -43,7 +43,7 @@ textarea { width: 100%; min-height: 80px; background: var(--card); color: var(--
 </main>
 <script>
 const ITEMS = /*DATA*/null;
-const KEY = "emotion-blind-v1";
+const KEY = "emotion-blind-" + /*SESSION*/"";
 let state = { lines: {}, notes: "" };
 try { state = JSON.parse(localStorage.getItem(KEY)) || state; } catch (e) {}
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} progress(); };

@@ -15,4 +15,4 @@ audiobook/work/
 audiobook/books/
 bakeoff/emotion/lines/
 bakeoff/emotion/session/
-bakeoff/emotion/mapping.json
+bakeoff/emotion/mapping*.json

@@ -5,12 +5,12 @@
 # ///
 """Turns a DRM-free EPUB (or a .txt with 第X章 headings) into an audiobook for BookPlayer.
 
-  uv run --script audiobook.py build BOOK.epub [--chapters 1-5]   ingest, cast, render, export
+  uv run --script audiobook.py build BOOK.epub [--chapters 1-5]   ingest, cast, act, render, export
   uv run --script audiobook.py cast BOOK.epub [--chapters 1-5]    stop after casting, to review cast.json
   uv run --script audiobook.py list BOOK.epub                     show the Chapters and their numbers
 
-Everything for a book lives in work/<file name>/: book.json, cast.json, speakers/, seg/ (cached
-takes), chapters/NNN <title>.m4a, report.json and <title>.m4b. Re-running skips finished work.
+Everything for a book lives in work/<file name>/: book.json, cast.json, speakers/, emotions/, acted/
+(IndexTTS-2 takes of charged dialogue, see acting.py), seg/ (cached takes), chapters/NNN <title>.m4a, report.json and <title>.m4b. Re-running skips finished work.
 """
 import argparse
 import json
@@ -20,6 +20,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import acting  # noqa: E402
 import casting  # noqa: E402
 import export  # noqa: E402
 import ingest  # noqa: E402
@@ -52,8 +53,9 @@ def safe(name):
     return "".join(c for c in name if c not in '/\\:*?"<>|')[:40]
 
 
-def build(book_dir, book, ids):
+def build(book_dir, book, ids, act=True):
     import gc
+    import subprocess
 
     import mlx.core as mx
     import soundfile as sf
@@ -61,6 +63,14 @@ def build(book_dir, book, ids):
     cast = casting.run(book_dir, book, ids)
     gc.collect()
     mx.clear_cache()  # the LLM is done; free its memory before loading the TTS models
+    if act:
+        acting.tag(book_dir, book, ids)
+        gc.collect()
+        mx.clear_cache()
+        try:
+            acting.act(book_dir, book, cast, ids)  # IndexTTS-2 runs in its own process, before the TTS models load
+        except (OSError, subprocess.CalledProcessError) as e:
+            print(f"[act] IndexTTS-2 failed ({e}); charged lines keep the steady voice", flush=True)
 
     import synth
 
@@ -76,7 +86,7 @@ def build(book_dir, book, ids):
             continue
         speakers = json.loads((book_dir / "speakers" / f"{n:03d}.json").read_text(encoding="utf-8"))
         t0 = time.perf_counter()
-        audio, sr, rep = renderer.chapter(chapter, speakers)
+        audio, sr, rep = renderer.chapter(chapter, speakers, acting.moods(book_dir, n))
         wav = book_dir / "chapter.tmp.wav"
         sf.write(wav, audio, sr)
         export.chapter_file(wav, m4a, book, n, chapter["title"])
@@ -129,6 +139,7 @@ def main():
     ap.add_argument("command", choices=["build", "cast", "list", "status"])
     ap.add_argument("source", help="EPUB or .txt")
     ap.add_argument("--chapters", help="1-based Chapter number or range, e.g. 3 or 2-5")
+    ap.add_argument("--no-act", action="store_true", help="build: skip the IndexTTS-2 pass; already acted lines are still used")
     args = ap.parse_args()
 
     book_dir, book = load(args.source)
@@ -146,7 +157,7 @@ def main():
         for name, c in sorted(cast.items(), key=lambda kv: -len(said.get(kv[0], []))):
             print(f"{len(said.get(name, [])):5d}  {name}: {c['gender']} {c['age']} -> {c.get('voice') or c['type']}")
         return
-    build(book_dir, book, ids)
+    build(book_dir, book, ids, act=not args.no_act)
 
 
 if __name__ == "__main__":

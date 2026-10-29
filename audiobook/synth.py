@@ -111,29 +111,67 @@ def voice_parts(paragraph):
     return out
 
 
+CLIPS = {}
+
+
+def ref_wav(voice):
+    """The reference clip a cloned voice reads from, or None for a preset."""
+    ref = mlx_tts.resolve(voice)
+    return str(mlx_tts.REFS / f"{ref[4:]}.wav") if ref.startswith("ref:") else None
+
+
+def clip_id(voice):
+    """A fingerprint of the reference clip a cloned voice uses, so replacing the clip redoes its Segments."""
+    wav = ref_wav(voice)
+    if not wav:
+        return mlx_tts.resolve(voice)
+    if wav not in CLIPS:
+        CLIPS[wav] = hashlib.sha1(Path(wav).read_bytes()).hexdigest()[:8]
+    return CLIPS[wav]
+
+
+def act_key(line, voice, mood):
+    """Names an Acted Line's take in acted/: its text, the character's clip and the (emotion, direction)."""
+    return hashlib.sha1(json.dumps([line, voice, clip_id(voice), list(mood)], ensure_ascii=False).encode()).hexdigest()[:16]
+
+
 class Renderer:
     def __init__(self, book_dir, cast):
         self.seg_dir = book_dir / "seg"
         self.seg_dir.mkdir(exist_ok=True)
+        self.acted_dir = book_dir / "acted"
         self.cast = cast
         self.say = mlx_tts.make_say()
         narrator = mlx_tts.LIBRARY["narrator"]
         self.narrator = ("narrator", mlx_tts.NARRATOR_STYLE if narrator.get("style") else None)
         self.rec = score.recognizer()
-        self.clips = {}
 
     def voice_of(self, name):
         c = self.cast.get(name)
         return (c.get("voice") or c["type"], None) if c else self.narrator
 
-    def clip_id(self, voice):
-        """A fingerprint of the reference clip a cloned voice uses, so replacing the clip redoes its Segments."""
-        ref = mlx_tts.resolve(voice)
-        if not ref.startswith("ref:"):
-            return ref
-        if ref not in self.clips:
-            self.clips[ref] = hashlib.sha1((mlx_tts.REFS / f"{ref[4:]}.wav").read_bytes()).hexdigest()[:8]
-        return self.clips[ref]
+    def quote_voice(self, text, speaker, mood):
+        """A character's voice for a quoted part: `acted:<key>|<voice>` when IndexTTS-2 has acted the line."""
+        voice, instruct = self.voice_of(speaker)
+        if mood and speaker in self.cast:
+            key = act_key(speakable(text), voice, mood)
+            if (self.acted_dir / f"{key}.wav").exists():
+                return f"acted:{key}|{voice}", instruct
+        return voice, instruct
+
+    @staticmethod
+    def clip_id(voice):
+        return voice.partition("|")[0] if voice.startswith("acted:") else clip_id(voice)
+
+    def speak(self, text, voice, instruct, attempt):
+        """The acted take on the first attempt; if the ASR check sends the Segment back, the steady voice."""
+        if voice.startswith("acted:"):
+            key, _, fallback = voice[6:].partition("|")
+            if attempt == 1:
+                audio, sr = sf.read(self.acted_dir / f"{key}.wav", dtype="float32")
+                return soxr.resample(audio, sr, 24000), 24000
+            voice = fallback
+        return self.say(text, voice, instruct)
 
     def transcribe(self, audio, sr):
         s = self.rec.create_stream()
@@ -141,9 +179,10 @@ class Renderer:
         self.rec.decode_stream(s)
         return s.result.text
 
-    def segment(self, parts, speaker):
-        """[(quoted, text)] -> (audio, sr, info); cached by text and voices."""
-        plan = [(speakable(text), *(self.voice_of(speaker) if quoted else self.narrator))
+    def segment(self, parts, speaker, mood=None):
+        """[(quoted, text)] -> (audio, sr, info); cached by text and voices. `mood` (emotion, direction) marks
+        the paragraph's quoted speech as an Acted Line."""
+        plan = [(speakable(text), *(self.quote_voice(text, speaker, mood) if quoted else self.narrator))
                 for quoted, text in parts if SPEAKABLE.search(text)]
         if not plan:
             sr = 24000
@@ -163,7 +202,7 @@ class Renderer:
         for attempt in range(1, MAX_TRIES + 1):
             pieces, sr = [], None
             for text, voice, instruct in plan:
-                audio, sr = self.say(text, voice, instruct)
+                audio, sr = self.speak(text, voice, instruct, attempt)
                 if pieces:
                     pieces.append(np.zeros(int(QUOTE_GAP_S * sr), dtype=np.float32))
                 pieces.append(level(np.asarray(audio, dtype=np.float32).reshape(-1)))
@@ -180,14 +219,15 @@ class Renderer:
         meta.write_text(json.dumps(info, ensure_ascii=False), encoding="utf-8")
         return audio, sr, info
 
-    def chapter(self, chapter, speakers):
-        """Returns (audio, sr, report). The narrator reads the chapter title first."""
+    def chapter(self, chapter, speakers, moods=None):
+        """Returns (audio, sr, report). The narrator reads the chapter title first. `moods`: acting.moods()."""
+        moods = moods or {}
         pieces, segments, sr = [], [], None
         title_audio, sr, _ = self.segment([(False, chapter["title"] + "。")], None)
         pieces.append(title_audio)
         for p, paragraph in enumerate(chapter["paragraphs"]):
             for s, (text, parts) in enumerate(voice_parts(paragraph)):
-                audio, sr, info = self.segment(parts, speakers.get(str(p)))
+                audio, sr, info = self.segment(parts, speakers.get(str(p)), moods.get(str(p)))
                 gap = common.SENTENCE_GAP_S if s else common.PARAGRAPH_GAP_S
                 pieces += [np.zeros(int(gap * sr), dtype=np.float32), audio]
                 segments.append({"p": p, "text": text, "audio_s": len(audio) / sr,
