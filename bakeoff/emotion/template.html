@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>情绪盲听</title>
+<style>
+:root { --bg: #f7f6f3; --card: #fff; --ink: #1d1d1f; --muted: #6e6e73; --line: #e3e1dc; --accent: #c2410c; --pick: #fff1e8; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #161616; --card: #202020; --ink: #ececec; --muted: #9a9a9a; --line: #333; --accent: #fb923c; --pick: #3a2618; } }
+:root[data-theme="dark"] { --bg: #161616; --card: #202020; --ink: #ececec; --muted: #9a9a9a; --line: #333; --accent: #fb923c; --pick: #3a2618; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 -apple-system, "PingFang SC", sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 24px 16px 80px; }
+h1 { font-size: 24px; margin: 0 0 4px; }
+.intro { color: var(--muted); margin: 0 0 24px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+.head { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 14px; }
+.line { font-size: 20px; margin: 6px 0 4px; }
+.dir { color: var(--accent); font-size: 14px; }
+details { color: var(--muted); font-size: 14px; margin: 6px 0 10px; }
+details p { white-space: pre-wrap; margin: 4px 0 0; }
+.clip { display: grid; grid-template-columns: 28px 1fr; gap: 4px 10px; align-items: center; padding: 8px; border-radius: 8px; }
+.clip.best { background: var(--pick); }
+.clip b { font-size: 18px; }
+audio { width: 100%; height: 36px; }
+.rate { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 14px; color: var(--muted); }
+.rate button { min-width: 36px; height: 32px; border: 1px solid var(--line); background: transparent; color: var(--ink); border-radius: 6px; font-size: 15px; cursor: pointer; }
+.rate button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.rate .star { margin-left: auto; }
+textarea { width: 100%; min-height: 80px; background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: inherit; }
+.bar { position: sticky; bottom: 0; background: var(--bg); padding: 12px 0; display: flex; gap: 12px; align-items: center; }
+.bar button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 10px 18px; font-size: 16px; cursor: pointer; }
+.bar span { color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+<h1>情绪对白盲听</h1>
+<p class="intro">每句台词有几种做法，顺序每句都重新打乱，编号不代表同一种做法。按“演得对不对、好不好听”给每个版本打 1–5 分，再点 ★ 选出这句最好的。全部听完点“导出评分”，文件会存到“下载”。</p>
+<div id="items"></div>
+<div class="card"><div class="head">备注（可选）</div><textarea id="notes" placeholder="比如：哪种做法哭腔假、哪种太夸张……"></textarea></div>
+<div class="bar"><button id="export">导出评分</button><span id="progress"></span></div>
+</main>
+<script>
+const ITEMS = /*DATA*/null;
+const KEY = "emotion-blind-v1";
+let state = { lines: {}, notes: "" };
+try { state = JSON.parse(localStorage.getItem(KEY)) || state; } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} progress(); };
+const progress = () => {
+  const done = ITEMS.filter((_, k) => (state.lines[k]?.scores || []).filter(Boolean).length === ITEMS[k].clips.length).length;
+  document.getElementById("progress").textContent = `已评 ${done} / ${ITEMS.length} 句`;
+};
+const root = document.getElementById("items");
+ITEMS.forEach((it, k) => {
+  const s = state.lines[k] ||= { scores: it.clips.map(() => 0), best: null };
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `<div class="head"><span>${k + 1} / ${ITEMS.length} · ${it.speaker}</span><span>${it.emotion}</span></div>
+    <div class="line">“${it.line}”</div><div class="dir">导演提示：${it.direction}</div>
+    <details><summary>上下文</summary><p></p></details>`;
+  card.querySelector("details p").textContent = it.context;
+  it.clips.forEach((src, i) => {
+    const row = document.createElement("div");
+    row.className = "clip" + (s.best === i ? " best" : "");
+    row.innerHTML = `<b>${i + 1}</b><audio controls preload="none" src="${src}"></audio><div class="rate"></div>`;
+    const rate = row.querySelector(".rate");
+    for (let v = 1; v <= 5; v++) {
+      const b = document.createElement("button");
+      b.textContent = v;
+      b.className = s.scores[i] === v ? "on" : "";
+      b.onclick = () => { s.scores[i] = v; rate.querySelectorAll("button:not(.star)").forEach((x, j) => x.className = j + 1 === v ? "on" : ""); save(); };
+      rate.appendChild(b);
+    }
+    const star = document.createElement("button");
+    star.className = "star" + (s.best === i ? " on" : "");
+    star.textContent = "★ 最好";
+    star.onclick = () => {
+      s.best = i;
+      card.querySelectorAll(".clip").forEach((c, j) => { c.classList.toggle("best", j === i); c.querySelector(".star").classList.toggle("on", j === i); });
+      save();
+    };
+    rate.appendChild(star);
+    card.appendChild(row);
+  });
+  root.appendChild(card);
+});
+const notes = document.getElementById("notes");
+notes.value = state.notes || "";
+notes.oninput = () => { state.notes = notes.value; save(); };
+document.getElementById("export").onclick = () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(state, null, 1)], { type: "application/json" }));
+  a.download = "emotion_scores.json";
+  a.click();
+};
+progress();
+</script>
+</body>
+</html>

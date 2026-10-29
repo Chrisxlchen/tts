@@ -13,3 +13,6 @@ bakeoff/out_run_all.log
 bakeoff/refs/*_take*.wav
 audiobook/work/
 audiobook/books/
+bakeoff/emotion/lines/
+bakeoff/emotion/session/
+bakeoff/emotion/mapping.json
