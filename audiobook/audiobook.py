@@ -82,7 +82,7 @@ def build(book_dir, book, ids, act=True):
     for n in ids:
         chapter = book["chapters"][n]
         m4a = out_dir / f"{n + 1:03d} {safe(chapter['title'])}.m4a"
-        if m4a.exists():
+        if m4a.exists() and not acting.stale(book_dir, n, m4a):
             continue
         speakers = json.loads((book_dir / "speakers" / f"{n:03d}.json").read_text(encoding="utf-8"))
         t0 = time.perf_counter()

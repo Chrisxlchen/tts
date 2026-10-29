@@ -1,7 +1,7 @@
 """Acted Lines: charged dialogue voiced by IndexTTS-2 with the director's emotion, the rest stays Qwen3 cloning.
 
-The emotion blind test (../bakeoff/emotion/RESULTS.md) found IndexTTS-2 clearly better on fear, anger,
-excitement and mockery, and no better or worse on cold, quiet-sad or gentle lines. So only quoted speech
+The emotion blind tests (../bakeoff/emotion/RESULTS.md) found IndexTTS-2 better on fear, anger and excitement
+in both rounds, a tie on mockery, and no better or worse on cold, quiet-sad or gentle lines. So only quoted speech
 that a local LLM tags with one of ACTED at high confidence is acted; everything else keeps the steady voice.
 
   tag()   emotions/NNN.json: {paragraph: {emotion, direction, confidence}} for charged dialogue
@@ -16,7 +16,7 @@ import subprocess
 from pathlib import Path
 
 LLM = "mlx-community/Qwen3-8B-4bit"  # what the blind test's tags came from
-ACTED = ("惊恐", "愤怒", "激动", "戏谑")
+ACTED = ("惊恐", "愤怒", "激动")
 EMOTIONS = ["愤怒", "悲伤", "惊恐", "激动", "低声细语", "冷淡", "戏谑", "温柔", "平静"]
 CUE = re.compile(r"怒|冷|笑|哭|颤|低声|咬牙|喊|吼|叫道|惊|恨|泣|哽|轻声|厉声|嘲|哼|急")
 INDEX_TTS = Path(__file__).resolve().parents[1] / "bakeoff" / "vendor" / "index-tts"
@@ -101,12 +101,25 @@ def jobs(book_dir, book, cast, ids):
                 for quoted, text in parts:
                     if quoted and synth.SPEAKABLE.search(text):
                         line = synth.speakable(text)
-                        out.append({"key": synth.act_key(line, voice, m), "text": line, "ref": synth.ref_wav(voice),
+                        out.append({"chapter": n, "key": synth.act_key(line, voice, m), "text": line, "ref": synth.ref_wav(voice),
                                     "emotion": m[0], "direction": m[1]})
     acted = book_dir / "acted"
     acted.mkdir(exist_ok=True)
     (acted / "jobs.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
     return out
+
+
+def stale(book_dir, n, m4a):
+    """A rendered Chapter is stale when one of its Acted Lines was acted after it was exported."""
+    path = book_dir / "acted" / "jobs.json"
+    if not path.exists():
+        return False
+    done = m4a.stat().st_mtime
+    for j in json.loads(path.read_text(encoding="utf-8")):
+        wav = book_dir / "acted" / f"{j['key']}.wav"
+        if j.get("chapter") == n and wav.exists() and wav.stat().st_mtime > done:
+            return True
+    return False
 
 
 def act(book_dir, book, cast, ids):
