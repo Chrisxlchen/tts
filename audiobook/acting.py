@@ -85,6 +85,17 @@ def moods(book_dir, n):
     return {p: (t["emotion"], t["direction"]) for p, t in tags.items() if is_acted(t)}
 
 
+def act_ref(voice):
+    """The clip IndexTTS-2 clones for a voice: its reference clip, or for a preset voice (which has none)
+    refs/preset_<name>.wav, a padded neutral sample of that preset. None when neither exists."""
+    import synth
+
+    if wav := synth.ref_wav(voice):
+        return wav
+    preset = synth.mlx_tts.REFS / f"preset_{synth.mlx_tts.resolve(voice)}.wav"
+    return str(preset) if preset.exists() else None
+
+
 def jobs(book_dir, book, cast, ids):
     import synth
 
@@ -97,11 +108,13 @@ def jobs(book_dir, book, cast, ids):
             if not c:
                 continue
             voice = c.get("voice") or c["type"]
+            if not act_ref(voice):
+                continue
             for _, parts in synth.voice_parts(book["chapters"][n]["paragraphs"][int(p)]):
                 for quoted, text in parts:
                     if quoted and synth.SPEAKABLE.search(text):
                         line = synth.speakable(text)
-                        out.append({"chapter": n, "key": synth.act_key(line, voice, m), "text": line, "ref": synth.ref_wav(voice),
+                        out.append({"chapter": n, "key": synth.act_key(line, voice, m), "text": line, "ref": act_ref(voice),
                                     "emotion": m[0], "direction": m[1]})
     acted = book_dir / "acted"
     acted.mkdir(exist_ok=True)
