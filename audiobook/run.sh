@@ -6,9 +6,12 @@
 # pauses until the Mac wakes, so keep it plugged in with the lid open.
 cd "${0:A:h}"
 BOOK="$1"; shift  # anything after the book goes to the build, e.g. --no-act
+# Acting first, in its own process (see acting.py); a failure only means charged lines keep the steady voice.
+[[ " $* " == *" --no-act "* ]] || caffeinate -is uv run --script audiobook.py act "$BOOK" "$@" 2>&1 \
+  | grep --line-buffered -E "^\[|Error|Traceback"
 for attempt in {1..20}; do
   echo "== build attempt $attempt $(date)"
-  caffeinate -is uv run --script audiobook.py build "$BOOK" "$@" 2>&1 | grep --line-buffered -E "^\[|Error|Traceback" \
+  caffeinate -is uv run --script audiobook.py build "$BOOK" --no-act ${@:#--no-act} 2>&1 | grep --line-buffered -E "^\[|Error|Traceback" \
     | tee work/last_build.log
   if grep -q "^\[m4b\] /" work/last_build.log; then
     echo "== all chapters done $(date)"

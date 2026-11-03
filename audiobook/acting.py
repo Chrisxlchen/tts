@@ -13,6 +13,7 @@ IndexTTS-2 cannot share memory with the TTS build, so this runs as its own pass 
 import json
 import re
 import subprocess
+import time
 from pathlib import Path
 
 LLM = "mlx-community/Qwen3-8B-4bit"  # what the blind test's tags came from
@@ -138,12 +139,18 @@ def stale(book_dir, n, m4a):
 def act(book_dir, book, cast, ids):
     todo = [j for j in jobs(book_dir, book, cast, ids) if not (book_dir / "acted" / f"{j['key']}.wav").exists()]
     print(f"[act] {len(todo)} lines to act with IndexTTS-2", flush=True)
-    # IndexTTS-2 peaks at about half of a 36 GB Mac, and macOS sometimes kills it while loading; finished
-    # lines are kept, so another run picks up where it stopped.
-    for attempt in range(3):
+    # IndexTTS-2 peaks at about half of a 36 GB Mac, and macOS sometimes kills it; finished lines are kept,
+    # so another run picks up where it stopped. It is mostly killed while loading, so give up only after
+    # six runs in a row that act nothing.
+    left = lambda: sum(1 for j in todo if not (book_dir / "acted" / f"{j['key']}.wav").exists())
+    idle = 0
+    while idle < 6:
+        before = left()
         run = subprocess.run(["uv", "run", "python", str(Path(__file__).resolve().parent / "act_index.py"),
                               str(book_dir / "acted")], cwd=INDEX_TTS)
         if run.returncode == 0:
             return
-        print(f"[act] IndexTTS-2 exited with {run.returncode}, retrying", flush=True)
+        idle = idle + 1 if left() == before else 0
+        print(f"[act] IndexTTS-2 exited with {run.returncode}, {left()} lines left, retrying", flush=True)
+        time.sleep(30)
     raise subprocess.CalledProcessError(run.returncode, run.args)

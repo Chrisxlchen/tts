@@ -6,6 +6,7 @@
 """Turns a DRM-free EPUB (or a .txt with 第X章 headings) into an audiobook for BookPlayer.
 
   uv run --script audiobook.py build BOOK.epub [--chapters 1-5]   ingest, cast, act, render, export
+  uv run --script audiobook.py act BOOK.epub [--chapters 1-5]     ingest, cast, tag and act only (run.sh runs it first)
   uv run --script audiobook.py cast BOOK.epub [--chapters 1-5]    stop after casting, to review cast.json
   uv run --script audiobook.py list BOOK.epub                     show the Chapters and their numbers
 
@@ -136,7 +137,7 @@ def status(book_dir, book):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["build", "cast", "list", "status"])
+    ap.add_argument("command", choices=["build", "act", "cast", "list", "status"])
     ap.add_argument("source", help="EPUB or .txt")
     ap.add_argument("--chapters", help="1-based Chapter number or range, e.g. 3 or 2-5")
     ap.add_argument("--no-act", action="store_true", help="build: skip the IndexTTS-2 pass; already acted lines are still used")
@@ -151,6 +152,16 @@ def main():
         status(book_dir, book)
         return
     ids = chapter_range(args.chapters, len(book["chapters"]))
+    if args.command == "act":
+        # its own process: IndexTTS-2 needs about half the RAM, and the build's models do not free all of theirs
+        cast = casting.run(book_dir, book, ids)
+        acting.tag(book_dir, book, ids)
+        import gc
+        import mlx.core as mx
+        gc.collect()
+        mx.clear_cache()
+        acting.act(book_dir, book, cast, ids)
+        return
     if args.command == "cast":
         cast = casting.run(book_dir, book, ids)
         said = casting.quotes_by_speaker(book_dir, book)
