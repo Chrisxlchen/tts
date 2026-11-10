@@ -10,8 +10,8 @@
   uv run --script audiobook.py cast BOOK.epub [--chapters 1-5]    stop after casting, to review cast.json
   uv run --script audiobook.py list BOOK.epub                     show the Chapters and their numbers
 
-Everything for a book lives in work/<file name>/: book.json, cast.json, speakers/, emotions/, acted/
-(IndexTTS-2 takes of charged dialogue, see acting.py), seg/ (cached takes), chapters/NNN <title>.m4a, report.json and <title>.m4b. Re-running skips finished work.
+Everything for a book lives in work/<file name>/: book.json, cast.json, speakers/, acted/
+(IndexTTS-2 takes of the dialogue the author marks with an emotion, see acting.py), seg/ (cached takes), chapters/NNN <title>.m4a, report.json and <title>.m4b. Re-running skips finished work.
 """
 import argparse
 import json
@@ -54,6 +54,10 @@ def safe(name):
     return "".join(c for c in name if c not in '/\\:*?"<>|')[:40]
 
 
+def chapter_m4a(book_dir, book, n):
+    return book_dir / "chapters" / f"{n + 1:03d} {safe(book['chapters'][n]['title'])}.m4a"
+
+
 def build(book_dir, book, ids, act=True):
     import gc
     import subprocess
@@ -65,11 +69,8 @@ def build(book_dir, book, ids, act=True):
     gc.collect()
     mx.clear_cache()  # the LLM is done; free its memory before loading the TTS models
     if act:
-        acting.tag(book_dir, book, ids)
-        gc.collect()
-        mx.clear_cache()
         try:
-            acting.act(book_dir, book, cast, ids)  # IndexTTS-2 runs in its own process, before the TTS models load
+            acting.act(book_dir, book, cast, [n for n in ids if not chapter_m4a(book_dir, book, n).exists()])  # IndexTTS-2 runs in its own process, before the TTS models load
         except (OSError, subprocess.CalledProcessError) as e:
             print(f"[act] IndexTTS-2 failed ({e}); charged lines keep the steady voice", flush=True)
 
@@ -82,12 +83,12 @@ def build(book_dir, book, ids, act=True):
     report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
     for n in ids:
         chapter = book["chapters"][n]
-        m4a = out_dir / f"{n + 1:03d} {safe(chapter['title'])}.m4a"
-        if m4a.exists() and not acting.stale(book_dir, n, m4a):
+        m4a = chapter_m4a(book_dir, book, n)
+        if m4a.exists():  # finished Chapters are never redone
             continue
         speakers = json.loads((book_dir / "speakers" / f"{n:03d}.json").read_text(encoding="utf-8"))
         t0 = time.perf_counter()
-        audio, sr, rep = renderer.chapter(chapter, speakers, acting.moods(book_dir, n))
+        audio, sr, rep = renderer.chapter(chapter, speakers, acting.moods(book_dir, book, n))
         wav = book_dir / "chapter.tmp.wav"
         sf.write(wav, audio, sr)
         export.chapter_file(wav, m4a, book, n, chapter["title"])
@@ -155,12 +156,7 @@ def main():
     if args.command == "act":
         # its own process: IndexTTS-2 needs about half the RAM, and the build's models do not free all of theirs
         cast = casting.run(book_dir, book, ids)
-        acting.tag(book_dir, book, ids)
-        import gc
-        import mlx.core as mx
-        gc.collect()
-        mx.clear_cache()
-        acting.act(book_dir, book, cast, ids)
+        acting.act(book_dir, book, cast, [n for n in ids if not chapter_m4a(book_dir, book, n).exists()])
         return
     if args.command == "cast":
         cast = casting.run(book_dir, book, ids)
