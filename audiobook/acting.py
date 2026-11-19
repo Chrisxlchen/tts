@@ -22,7 +22,8 @@ CUES = {  # words that state the emotion outright; 怒 alone would also catch �
     "惊恐": r"惊恐|惊叫|惊呼|颤声|颤抖|恐惧|害怕|尖叫|失声|惶恐|惊慌|骇然|战栗",
     "激动": r"激动|兴奋|狂喜|欢呼|大喜|喜道|欣喜若狂|振奋|雀跃|兴高采烈",
 }
-CUE = re.compile("|".join(f"(?P<{['anger', 'fear', 'joy'][i]}>{c})" for i, c in enumerate(CUES.values())))
+# a cue followed by 的 describes something else (学生们惊恐的脸), not how the line is said
+CUE = re.compile("|".join(f"(?P<{['anger', 'fear', 'joy'][i]}>(?:{c})(?!的))" for i, c in enumerate(CUES.values())))
 INDEX_TTS = Path(__file__).resolve().parents[1] / "bakeoff" / "vendor" / "index-tts"
 
 
