@@ -145,6 +145,13 @@ class Renderer:
         narrator = mlx_tts.LIBRARY["narrator"]
         self.narrator = ("narrator", mlx_tts.NARRATOR_STYLE if narrator.get("style") else None)
         self.rec = score.recognizer()
+        self.used = set()  # seg/ files the current Chapter read or wrote
+
+    def forget(self):
+        """Deletes the cached takes of the Chapter just exported."""
+        for path in self.used:
+            path.unlink(missing_ok=True)
+        self.used = set()
 
     def voice_of(self, name):
         c = self.cast.get(name)
@@ -193,6 +200,7 @@ class Renderer:
         clips = sorted({self.clip_id(voice) for _, voice, _ in plan})
         key = hashlib.sha1(json.dumps([CACHE_VERSION, plan, clips], ensure_ascii=False).encode()).hexdigest()[:16]
         wav, meta = self.seg_dir / f"{key}.wav", self.seg_dir / f"{key}.json"
+        self.used |= {wav, meta}
         if wav.exists() and meta.exists():
             audio, sr = sf.read(wav, dtype="float32")
             return audio, sr, json.loads(meta.read_text(encoding="utf-8")) | {"cached": True}

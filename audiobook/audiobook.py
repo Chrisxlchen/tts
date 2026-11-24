@@ -30,11 +30,14 @@ WORK = HERE / "work"
 
 
 def chapter_range(spec, count):
-    """'3' or '2-5' (1-based, inclusive) -> 0-based indices; None means every Chapter."""
+    """'3', '2-5' or '3-439,474-477' (1-based, inclusive) -> 0-based indices; None means every Chapter."""
     if not spec:
         return list(range(count))
-    lo, _, hi = spec.partition("-")
-    return list(range(int(lo) - 1, min(int(hi or lo), count)))
+    ids = []
+    for part in spec.split(","):
+        lo, _, hi = part.partition("-")
+        ids += range(int(lo) - 1, min(int(hi or lo), count))
+    return ids
 
 
 def load(source):
@@ -93,6 +96,7 @@ def build(book_dir, book, ids, act=True):
         sf.write(wav, audio, sr)
         export.chapter_file(wav, m4a, book, n, chapter["title"])
         wav.unlink()
+        renderer.forget()  # a finished Chapter is never redone, so its cached takes only fill the disk
         wall = time.perf_counter() - t0
         report[str(n)] = {k: rep[k] for k in ("title", "audio_s", "gen_s", "retried", "still_bad")} | {"wall_s": wall}
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -100,15 +104,15 @@ def build(book_dir, book, ids, act=True):
               f"({rep['audio_s'] / wall:.2f}x), retried {rep['retried']}, still bad {len(rep['still_bad'])}",
               flush=True)
 
-    done = sorted(out_dir.glob("*.m4a"))
-    if len(done) == len(book["chapters"]):
+    done = [chapter_m4a(book_dir, book, n) for n in ids if chapter_m4a(book_dir, book, n).exists()]
+    if len(done) == len(ids):
         cover = book_dir / "cover.jpg"
         out = book_dir / f"{safe(book['title'])}.m4b"
         export.m4b([(p, book["chapters"][int(p.name[:3]) - 1]["title"]) for p in done], out, book,
                    cover if cover.exists() else None)
         print(f"[m4b] {out}")
     else:
-        print(f"[m4b] {len(done)}/{len(book['chapters'])} chapters rendered; chapters/ can already go to BookPlayer")
+        print(f"[m4b] {len(done)}/{len(ids)} chapters rendered; chapters/ can already go to BookPlayer")
 
 
 def status(book_dir, book):
