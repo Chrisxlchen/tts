@@ -10,7 +10,7 @@ RESUME_FREE_PCT=20  # and it has to be back above this for RESUME_CHECKS checks 
 MIN_DISK_GB=8
 RESUME_DISK_GB=12
 RESUME_CHECKS=4
-EVERY_S=30
+EVERY_S=10
 
 pids() { pgrep -f "audiobook.py (act|build) |act_index.py " }
 say() { echo "$(date '+%F %T') $1" >> $LOG; osascript -e "display notification \"$1\" with title \"有声书\"" 2>/dev/null }
@@ -23,6 +23,9 @@ while true; do
   if (( free < MIN_FREE_PCT || level >= 4 || disk < MIN_DISK_GB )); then
     calm=0
     if (( ! paused )) && [[ -n "$(pids)" ]]; then
+      # IndexTTS-2 is what fills memory, and a frozen copy still holds it: end it (acting retries, keeping
+      # finished lines) and freeze the rest
+      (( level >= 4 )) && pkill -KILL -f "act_index.py "  # KILL: a stopped process never acts on TERM
       kill -STOP $(pids) 2>/dev/null
       paused=1
       say "暂停生成：内存剩 ${free}%（压力 ${level}），磁盘剩 ${disk} GB"

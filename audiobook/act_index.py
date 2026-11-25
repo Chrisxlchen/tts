@@ -9,6 +9,7 @@ import sys
 import time
 from pathlib import Path
 
+import torch
 from indextts.infer_v2 import IndexTTS2
 
 acted = Path(sys.argv[1])
@@ -20,5 +21,6 @@ for i, j in enumerate(todo, 1):
     tts.infer(spk_audio_prompt=j["ref"], text=j["text"], output_path=str(tmp),
               use_emo_text=True, emo_text=f"{j['emotion']}，{j['direction']}", emo_alpha=0.6)
     tmp.rename(acted / f"{j['key']}.wav")
+    torch.mps.empty_cache()  # Metal's cache otherwise grows line by line until the Mac runs out
     left = (time.perf_counter() - t0) / i * (len(todo) - i)
     print(f"[act] {i}/{len(todo)} done, about {left / 60:.0f} min left", flush=True)

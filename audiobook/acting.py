@@ -13,6 +13,7 @@ IndexTTS-2 cannot share memory with the TTS build, so this runs as its own pass 
 """
 import json
 import re
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -97,7 +98,10 @@ def act(book_dir, book, cast, ids):
     while idle < 6:
         before = left()
         run = subprocess.run(["uv", "run", "python", str(Path(__file__).resolve().parent / "act_index.py"),
-                              str(book_dir / "acted")], cwd=INDEX_TTS)
+                              str(book_dir / "acted")], cwd=INDEX_TTS,
+                             # cap Metal at the recommended working set, so running out is an error and a retry
+                             # rather than a Mac that stops answering (it panicked on 2026-11-25)
+                             env=os.environ | {"PYTORCH_MPS_HIGH_WATERMARK_RATIO": "1.0", "PYTORCH_MPS_LOW_WATERMARK_RATIO": "0.8"})
         if run.returncode == 0:
             return
         idle = idle + 1 if left() == before else 0
